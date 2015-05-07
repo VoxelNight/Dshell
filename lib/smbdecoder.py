@@ -240,7 +240,7 @@ class SMB():
             datalenlow, dataoffset, datalenhigh = struct.unpack(
                 '<HHI', data[11:19])
             bytecount, padding = struct.unpack('<HB', data[25:28])
-            return data[28:27 + bytecount]
+            return data[dataoffset - 32:dataoffset - 32 + bytecount]
         except:
             return ''
 
