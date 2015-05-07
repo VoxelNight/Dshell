@@ -1,9 +1,9 @@
 """
-2015 Feb 13
+2015 May07 
 
-Goes through SMB traffic and snips out any file uploads it sees.
+Goes through SMB traffic and snips out any file transfers it sees.
 
-Specifically, it looks for create, write, and close commands and creates a
+Specifically, it looks for create, read, write, and close commands and creates a
 local file, writes the raw data to the local file, and closes the file,
 respectively.
 """
@@ -18,6 +18,7 @@ SMB_STATUS_SUCCESS = 0x0
 SMB_COM_OPEN = 0x02		# Open a file.
 SMB_COM_CLOSE = 0x04		# Close a file.
 SMB_COM_NT_CREATE_ANDX = 0xa2  # Create or open a file or a directory.
+SMB_COM_READ_ANDX = 0x2e		# Extended file read with AndX chaining.
 SMB_COM_WRITE_ANDX = 0x2f		# Extended file write with AndX chaining.
 
 
@@ -30,11 +31,11 @@ class DshellDecoder(SMBDecoder):
         self.fds = {}
         self.outdir = None 
         SMBDecoder.__init__(self,
-                            name='rip-smb-uploads',
-                            description='Extract files uploaded via SMB',
+                            name='rip-smb',
+                            description='Extract files transferred via SMB',
                             filter='tcp and port 445',
                             filterfn=lambda t: t[0][1] == 445 or t[1][1] == 445,
-                            author='bg',
+                            author='vn,bg',
                             optiondict={
                                 "outdir": {"help": "Directory to place files (default: ./smb_out)", "default": "./smb_out", "metavar": "DIRECTORY"},
                             }
@@ -74,6 +75,22 @@ class DshellDecoder(SMBDecoder):
 
             elif cmd == SMB_COM_WRITE_ANDX:  # write data to the file
                 fid, rawbytes = request.PARSE_WRITE_ANDX(request.smbdata)
+
+                # do we have a local fd already open to handle this write?
+                if fid in self.fds.keys():
+                    self.fds[fid].write(rawbytes)
+                else:
+                    try:
+                        fidhandle = self.fidhandles[fid]
+                        self.fds[fid] = open(fidhandle, 'wb')
+                        self.fds[fid].write(rawbytes)
+                    except KeyError:
+                        self.debug("Error: Could not find fidhandle for FID %s" % (fid))
+                        return
+
+            elif cmd == SMB_COM_READ_ANDX:  # read data from the file
+                fid = request.PARSE_READ_ANDX_Request(request.smbdata)
+                rawbytes = response.PARSE_READ_ANDX_Response(response.smbdata)
 
                 # do we have a local fd already open to handle this write?
                 if fid in self.fds.keys():
